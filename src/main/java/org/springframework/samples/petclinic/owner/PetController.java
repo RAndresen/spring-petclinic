@@ -22,6 +22,9 @@ import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.*;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import javax.validation.Valid;
 import java.util.Collection;
 
@@ -40,19 +43,23 @@ class PetController {
 
 	private final OwnerRepository owners;
 
+	private final Logger logger = LoggerFactory.getLogger(PetController.class);
+
+	private final DTOmapping mapper = new DTOmapping();
+
 	public PetController(PetRepository pets, OwnerRepository owners) {
 		this.pets = pets;
 		this.owners = owners;
 	}
 
 	@ModelAttribute("types")
-	public Collection<PetType> populatePetTypes() {
-		return this.pets.findPetTypes();
+	public Collection<PetTypeDTO> populatePetTypes() {
+		return mapper.convertPetTypeCollectionToDTO(this.pets.findPetTypes());
 	}
 
 	@ModelAttribute("owner")
-	public Owner findOwner(@PathVariable("ownerId") int ownerId) {
-		return this.owners.findById(ownerId);
+	public OwnerDTO findOwner(@PathVariable("ownerId") int ownerId) {
+		return mapper.convertOwnerToDTO(this.owners.findById(ownerId));
 	}
 
 	@InitBinder("owner")
@@ -62,28 +69,36 @@ class PetController {
 
 	@InitBinder("pet")
 	public void initPetBinder(WebDataBinder dataBinder) {
-		dataBinder.setValidator(new PetValidator());
+		dataBinder.setValidator(new PetDTOValidator());
 	}
 
 	@GetMapping("/pets/new")
-	public String initCreationForm(Owner owner, ModelMap model) {
+	public String initCreationForm(@ModelAttribute("owner") OwnerDTO ownerDTO, ModelMap model) {
+		logger.info("create new pet");
+		Owner owner = mapper.convertOwnerToEntity(ownerDTO);
 		Pet pet = new Pet();
 		owner.addPet(pet);
-		model.put("pet", pet);
+		PetDTO petDTO = mapper.convertPetToDTO(pet);
+		model.put("pet", petDTO);
 		return VIEWS_PETS_CREATE_OR_UPDATE_FORM;
 	}
 
 	@PostMapping("/pets/new")
-	public String processCreationForm(Owner owner, @Valid Pet pet, BindingResult result, ModelMap model) {
-		if (StringUtils.hasLength(pet.getName()) && pet.isNew() && owner.getPet(pet.getName(), true) != null) {
+	public String processCreationForm(@ModelAttribute("owner") OwnerDTO ownerDTO,
+			@ModelAttribute("pet") @Valid PetDTO petDTO, BindingResult result, ModelMap model) {
+
+		if (StringUtils.hasLength(petDTO.getName()) && petDTO.isNew()
+				&& ownerDTO.getPet(petDTO.getName(), true) != null) {
 			result.rejectValue("name", "duplicate", "already exists");
 		}
-		owner.addPet(pet);
+		ownerDTO.addPet(petDTO);
 		if (result.hasErrors()) {
-			model.put("pet", pet);
+			logger.debug("Result = {} ", result.getAllErrors());
+			model.put("pet", petDTO);
 			return VIEWS_PETS_CREATE_OR_UPDATE_FORM;
 		}
 		else {
+			Pet pet = mapper.convertPetToEntity(petDTO);
 			this.pets.save(pet);
 			return "redirect:/owners/{ownerId}";
 		}
@@ -92,19 +107,21 @@ class PetController {
 	@GetMapping("/pets/{petId}/edit")
 	public String initUpdateForm(@PathVariable("petId") int petId, ModelMap model) {
 		Pet pet = this.pets.findById(petId);
-		model.put("pet", pet);
+		PetDTO petDTO = mapper.convertPetToDTO(pet);
+		model.put("pet", petDTO);
 		return VIEWS_PETS_CREATE_OR_UPDATE_FORM;
 	}
 
 	@PostMapping("/pets/{petId}/edit")
-	public String processUpdateForm(@Valid Pet pet, BindingResult result, Owner owner, ModelMap model) {
+	public String processUpdateForm(@ModelAttribute("pet") @Valid PetDTO petDTO, BindingResult result,
+			@ModelAttribute("owner") OwnerDTO ownerDTO, ModelMap model) {
+		Pet pet = mapper.convertPetToEntity(petDTO);
 		if (result.hasErrors()) {
-			pet.setOwner(owner);
-			model.put("pet", pet);
+			petDTO.setOwner(ownerDTO);
+			model.put("pet", petDTO);
 			return VIEWS_PETS_CREATE_OR_UPDATE_FORM;
 		}
 		else {
-			owner.addPet(pet);
 			this.pets.save(pet);
 			return "redirect:/owners/{ownerId}";
 		}

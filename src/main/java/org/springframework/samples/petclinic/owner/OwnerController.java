@@ -25,9 +25,14 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.InitBinder;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.servlet.ModelAndView;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import javax.validation.Valid;
+
 import java.util.Collection;
 import java.util.Map;
 
@@ -48,6 +53,10 @@ class OwnerController {
 
 	private VisitRepository visits;
 
+	private final Logger logger = LoggerFactory.getLogger(OwnerController.class);
+
+	private final DTOmapping mapper = new DTOmapping();
+
 	public OwnerController(VisitRepository visits) {
 		this.visits = visits;
 	}
@@ -59,13 +68,15 @@ class OwnerController {
 
 	@GetMapping("/owners/new")
 	public String initCreationForm(Map<String, Object> model) {
-		Owner owner = new Owner();
-		model.put("owner", owner);
+		OwnerDTO ownerDTO = new OwnerDTO();
+		model.put("owner", ownerDTO);
 		return VIEWS_OWNER_CREATE_OR_UPDATE_FORM;
+
 	}
 
 	@PostMapping("/owners/new")
-	public String processCreationForm(@Valid Owner owner, BindingResult result) {
+	public String processCreationForm(@Valid @ModelAttribute("owner") OwnerDTO ownerDTO, BindingResult result) {
+		Owner owner = mapper.convertOwnerToEntity(ownerDTO);
 		if (result.hasErrors()) {
 			return VIEWS_OWNER_CREATE_OR_UPDATE_FORM;
 		}
@@ -77,17 +88,19 @@ class OwnerController {
 
 	@GetMapping("/owners/find")
 	public String initFindForm(Map<String, Object> model) {
-		model.put("owner", new Owner());
+		model.put("owner", new OwnerDTO());
 		return "owners/findOwners";
 	}
 
 	@GetMapping("/owners")
-	public String processFindForm(Owner owner, BindingResult result, Map<String, Object> model) {
+	public String processFindForm(@ModelAttribute("owner") OwnerDTO ownerDTO, BindingResult result,
+			Map<String, Object> model) {
 
-		System.out.println("Searching for " + owner.getLastName().trim());
-
+		Owner owner = mapper.convertOwnerToEntity(ownerDTO);
+		logger.info("Searching for ", owner.getLastName().trim());
 		// find owners by last name
-		Collection<Owner> results = this.owners.findByLastName(owner.getLastName());
+		Collection<OwnerDTO> results = mapper
+				.convertOwnerCollectionToDTO(this.owners.findByLastName(owner.getLastName()));
 		if (results.isEmpty()) {
 			// no owners found
 			result.rejectValue("lastName", "notFound", "not found");
@@ -95,8 +108,8 @@ class OwnerController {
 		}
 		else if (results.size() == 1) {
 			// 1 owner found
-			owner = results.iterator().next();
-			return "redirect:/owners/" + owner.getId();
+			ownerDTO = results.iterator().next();
+			return "redirect:/owners/" + ownerDTO.getId();
 		}
 		else {
 			// multiple owners found
@@ -107,14 +120,15 @@ class OwnerController {
 
 	@GetMapping("/owners/{ownerId}/edit")
 	public String initUpdateOwnerForm(@PathVariable("ownerId") int ownerId, Model model) {
-		Owner owner = this.owners.findById(ownerId);
-		model.addAttribute(owner);
+		OwnerDTO ownerDTO = mapper.convertOwnerToDTO(this.owners.findById(ownerId));
+		model.addAttribute("owner", ownerDTO);
 		return VIEWS_OWNER_CREATE_OR_UPDATE_FORM;
 	}
 
 	@PostMapping("/owners/{ownerId}/edit")
-	public String processUpdateOwnerForm(@Valid Owner owner, BindingResult result,
+	public String processUpdateOwnerForm(@Valid @ModelAttribute("owner") OwnerDTO ownerDTO, BindingResult result,
 			@PathVariable("ownerId") int ownerId) {
+		Owner owner = mapper.convertOwnerToEntity(ownerDTO);
 		if (result.hasErrors()) {
 			return VIEWS_OWNER_CREATE_OR_UPDATE_FORM;
 		}
@@ -137,7 +151,8 @@ class OwnerController {
 		for (Pet pet : owner.getPets()) {
 			pet.setVisitsInternal(visits.findByPetId(pet.getId()));
 		}
-		mav.addObject(owner);
+		OwnerDTO ownerDTO = mapper.convertOwnerToDTO(owner);
+		mav.addObject("owner", ownerDTO);
 		return mav;
 	}
 
